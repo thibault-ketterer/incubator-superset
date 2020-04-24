@@ -24,6 +24,7 @@
 
 import logging
 import os
+from celery.schedules import crontab
 
 from werkzeug.contrib.cache import FileSystemCache
 
@@ -65,18 +66,79 @@ SQLALCHEMY_DATABASE_URI = "%s://%s:%s@%s:%s/%s" % (
 REDIS_HOST = get_env_variable("REDIS_HOST")
 REDIS_PORT = get_env_variable("REDIS_PORT")
 
-RESULTS_BACKEND = FileSystemCache('/app/superset_home/sqllab')
-
+LOG_LEVEL = "ERROR"
 
 class CeleryConfig(object):
     BROKER_URL = "redis://%s:%s/0" % (REDIS_HOST, REDIS_PORT)
-    CELERY_IMPORTS = ("superset.sql_lab",)
+    CELERY_IMPORTS = (
+        'superset.sql_lab',
+        'superset.tasks',
+    )
     CELERY_RESULT_BACKEND = "redis://%s:%s/1" % (REDIS_HOST, REDIS_PORT)
-    CELERY_ANNOTATIONS = {"tasks.add": {"rate_limit": "10/s"}}
-    CELERY_TASK_PROTOCOL = 1
+    CELERYD_LOG_LEVEL = 'ERROR'
+    CELERYD_PREFETCH_MULTIPLIER = 10
+    CELERY_ACKS_LATE = True
+    CELERY_ANNOTATIONS = {
+        'sql_lab.get_sql_results': {
+            'rate_limit': '100/s',
+        },
+        'email_reports.send': {
+            'rate_limit': '1/s',
+            'time_limit': 120,
+            'soft_time_limit': 150,
+            'ignore_result': True,
+        },
+    }
+    CELERYBEAT_SCHEDULE = {
+        'email_reports.schedule_hourly': {
+            'task': 'email_reports.schedule_hourly',
+            'schedule': crontab(minute='*', hour='*'),
+        },
+    }
 
 
 CELERY_CONFIG = CeleryConfig
+
+EMAIL_REPORTS_WEBDRIVER = 'firefox'
+WEBDRIVER_CONFIGURATION  = { "service_log_path": "/tmp/webvdriver.log",
+#        "executable_path": "/usr/bin/chromedriver"
+        }
+
+WEBDRIVER_BASEURL = "http://superset:8088/"
+
+# options = webdriver.ChromeOptions()
+# options.binary_location = r"<YOUR_CHROME_PATH>\chrome.exe"
+# chrome_driver_path = r"<PATH_TO_CHROME_DRIVER>\chromedriver.exe>"
+# 
+# browser = webdriver.Chrome(chrome_driver_path, chrome_options=options)
+
+ENABLE_SCHEDULED_EMAIL_REPORTS = True
+EMAIL_NOTIFICATIONS = True
+
+EMAIL_REPORTS_USER = 'admin'
+
+SMTP_HOST = "ip-172-31-8-185"
+SMTP_STARTTLS = False
+SMTP_SSL = False
+SMTP_USER = ""
+SMTP_PORT = 25
+SMTP_PASSWORD = ""
+SMTP_MAIL_FROM = "superset@RDday"
+
+# https://superset.incubator.apache.org/installation.html#caching
+CACHE_CONFIG = {
+  'CACHE_TYPE': 'redis',
+  'CACHE_DEFAULT_TIMEOUT': 5 * 60,
+  'CACHE_KEY_PREFIX':'superset_results',
+  'CACHE_REDIS_URL': 'redis://%s:%s/0' % (REDIS_HOST, REDIS_PORT),
+}
+
+
+# On Redis
+from werkzeug.contrib.cache import RedisCache
+RESULTS_BACKEND = RedisCache(
+    host='%s' % REDIS_HOST, port='%s' % REDIS_PORT, key_prefix='superset_results')
+
 
 #
 # Optionally import superset_config_docker.py (which will have been included on

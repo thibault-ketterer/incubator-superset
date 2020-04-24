@@ -81,8 +81,10 @@ RUN useradd --user-group --no-create-home --no-log-init --shell /bin/bash supers
         && apt-get install -y --no-install-recommends \
             build-essential \
             default-libmysqlclient-dev \
-            libpq-dev \
-        && rm -rf /var/lib/apt/lists/*
+            libpq-dev
+# nope I need to install lot's of dev package for xvfb to work
+# \
+#        && rm -rf /var/lib/apt/lists/*
 
 COPY --from=superset-py /usr/local/lib/python3.6/site-packages/ /usr/local/lib/python3.6/site-packages/
 # Copying site-packages doesn't move the CLIs, so let's copy them one by one
@@ -109,6 +111,7 @@ EXPOSE ${SUPERSET_PORT}
 
 ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 
+
 ######################################################################
 # Dev image...
 ######################################################################
@@ -121,3 +124,36 @@ RUN cd /app \
     && pip install --no-cache -r requirements-dev.txt -r requirements-extra.txt \
     && pip install --no-cache -r requirements-local.txt || true
 USER superset
+
+######################################################################
+# XVFB worker
+######################################################################
+FROM dev AS superset-xvfb-worker
+
+USER root
+
+RUN apt-get install -y build-essential libssl-dev \
+    libffi-dev python3-dev libsasl2-dev libldap2-dev libxi-dev \
+    default-jre libgtk-3-0 xvfb firefox-esr \
+    && rm -rf /var/lib/apt/lists/* \ 
+    && rm -f /var/cache/apt/archives/*.deb \
+    && rm -f /var/cache/apt/archives/partials/*.deb
+
+RUN wget https://github.com/mozilla/geckodriver/releases/download/v0.24.0/geckodriver-v0.24.0-linux64.tar.gz
+RUN tar -x geckodriver -zf geckodriver-v0.24.0-linux64.tar.gz -O > /usr/bin/geckodriver
+RUN chmod +x /usr/bin/geckodriver
+RUN rm geckodriver-v0.24.0-linux64.tar.gz
+RUN wget -q "https://chromedriver.storage.googleapis.com/79.0.3945.36/chromedriver_linux64.zip" -O /tmp/chromedriver.zip \
+    && unzip /tmp/chromedriver.zip -d /usr/bin/ \
+    && rm /tmp/chromedriver.zip
+
+RUN mkdir /home/superset && chown superset -R /home/superset
+
+USER superset
+
+# HEALTHCHECK CMD ["curl", "-f", "http://localhost:8088/health"]
+# 
+# EXPOSE ${SUPERSET_PORT}
+# 
+# ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
+# 
